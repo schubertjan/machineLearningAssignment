@@ -1,0 +1,73 @@
+---
+title: "Machine Learning Assignment"
+author: "Jan Schubert"
+output: html_document
+---
+
+This document uses data from Human Activity Recognition dataset with the aim to predict the manner in which an exercise is being done.
+
+####Loading and cleaning of the data
+First we download the training and testing data using the provided urls. Cells containg "NA", "#DIV/0" and empty cells are set to be missing values.
+```{r, include=FALSE}
+library(caret)
+library(tictoc)
+```
+```{r, cache=TRUE}
+urlTrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(urlTrain,destfile = "training.csv")
+urlTest <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(urlTest,destfile = "testing.csv")
+
+training <- read.csv("training.csv",na.strings = c("#DIV/0!","NA",""))
+testing <- read.csv("testing.csv",na.strings = c("#DIV/0!","NA",""))
+
+dim(training)
+trainingNA <- apply(training,2,function (x) sum(is.na(x)))
+head(trainingNA[trainingNA>0])
+```
+A lot of variables contain a majority of missing values. Those variables appear to be a summary of different variables such as minimum, maximum average etc. However, they are not always mapped correctly to the new training window (when a new exercise starts) and we will remove them from the dataset.
+
+```{r}
+colID <- grep("var|avg|stddev|min|max|total|amplitude|skewness|kurtosis",colnames(training))
+training <- training[,-colID]
+dim(training)
+trainingNA <- apply(training,2,function (x) sum(is.na(x)))
+head(trainingNA[trainingNA>0])
+```
+
+####Slicing the training data 
+We have now removed missing values. The new dataset has 19622 rows and 56 variables. Next, we will split the original training set into validation set and new (smaller) training set which we will be using to estimate model's error. We select 100 windows at random as our validation set. The rest will be used for training the model.
+```{r}
+#split training set on training and validation
+set.seed(12345)
+windowNum <- unique(training$num_window)
+valid <- sample(windowNum,size = 100,replace = F)
+
+training2 <- training[!training$num_window %in% valid,]
+validation <- training[training$num_window %in% valid,]
+
+dim(training2);dim(validation)
+```
+
+####Fitting the model
+Next, we will fit a random forest model using the new (smaller) training set. We are using random forest because it is (in general) one of the top performing algorithms (especially when using classification trees rather than regression trees). Random Forest is also good at handling nonlinear relationships which are happening in our training dataset (given the quantile distribution of the dependent variables).
+
+```{r, cache=TRUE}
+#fit Random forest model
+set.seed(12345)
+tic()
+modRF <- train(classe~.,data=training2[,-1:-7],method="rf")
+modTime1 <- toc()
+modRF
+```
+
+The model has an accuracy of 99% on the training set (meaning 99% of the cases get predicted correctly). Given the number of observations and variables, the time it takes to calculate the model is quite long (87 min). This is not an issue for our purposes but could be an obstacle for implementing the model if there is need to reestimate frequently. 99% accuracy is very high and could mean the model is overfitting the traing data. To test for this we will use the validation set to assess the likely out of sample error.
+
+####Testing out of sample error
+We will test the out of sample error on the validation set. The out of sample accuracy is 94% still high. The model seems to be having problems with classifying activity B and D which are often misclassified as A and C respectively. This should still be enough to predict correctly at least 80% of the testing cases (expected correct number of predictions in testing data 0.94*20 = 19).
+
+```{r}
+confusionMatrix(predict(modRF,validation),validation$classe)
+```
+
+*Source: [Human Activity Recognition](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har)*
